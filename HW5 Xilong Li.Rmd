@@ -1,0 +1,12 @@
+---
+title: "HW5 Xilong Li"
+author: "Xilong Li (3467966)"
+date: '2022-05-15'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1
