@@ -2,16 +2,111 @@
 title: "HW5 Xilong Li"
 author: "Xilong Li (3467966)"
 date: '2022-05-15'
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Question 1
-
 ```{r}
+library(tidyverse)
+library(tidymodels)
+library(discrim)
+library(poissonreg)
+library(corrr)
+library(klaR) # for naive bayes
+#install.packages("janitor")
+library(janitor)
+
+pokemon_original <- read.csv("Pokemon.csv")
 
 ```
+
+## Question 1:
+
+```{r}
+pokemon <- clean_names(pokemon_original)
+head(pokemon)
+```
+By using the "clean_names" function, the resulting names are unique and consist only of the '_' character, numbers, and letters. Capitalization preferences can be specified using the case parameter. Accented characters are transliterated to ASCII. For example, an "o" with a German umlaut over it becomes "o", and the Spanish character "enye" becomes "n".(This explanation is cited from the website: https://rdrr.io/cran/janitor/man/clean_names.html)            
+## Question 2:
+```{r}
+ordered_data <- pokemon %>%
+  group_by(type_1) %>%
+  summarise(count = n()) %>%
+  arrange(count)
+
+ggplot(ordered_data, aes(x = count, y = reorder(type_1, -count))) + geom_bar(stat = "identity")
+```
+As it is shown above, there are 18 classes in total, and classes such as flying, fairy, and ice have fewer pokemons than others,
+
+```{r}
+filtered_pokemon <- pokemon %>% filter(type_1 == c("Bug", "Fire", "Grass", "Normal", "Water", "Psychic"))
+filtered_pokemon$type_1 <- as.factor(filtered_pokemon$type_1)
+filtered_pokemon$legendary <- as.factor(filtered_pokemon$legendary)
+
+```
+
+## Question 3:
+```{r}
+set.seed(2216)
+
+poke_split <- initial_split(filtered_pokemon, prop = 0.80,
+                            strata = "type_1")
+poke_train <- training(poke_split)
+poke_test <- testing(poke_split)
+
+poke_fold <- vfold_cv(poke_train, v = 5)
+
+poke_fold
+```
+
+## Question 4:
+```{r}
+poke_recipe <- recipe(type_1 ~ 
+                         legendary +
+                         generation + 
+                         sp_atk + 
+                         attack + 
+                         attack + 
+                         attack + 
+                         hp + 
+                         sp_def,
+                       data = poke_train) %>% 
+  step_dummy(legendary) %>% 
+  step_dummy(generation) %>% 
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors())
+```
+
+## Question 5:
+
+```{r}
+poke_spec <- multinom_reg (mixture = 0, penalty = 0) %>%
+  set_mode("classification") %>%
+  set_engine("glmnet")
+
+poke_workflow <- workflow() %>% 
+  add_recipe(poke_recipe) %>% 
+  add_model(poke_spec)
+
+```
+
+## Question 6:
+```{r}
+penalty_grid <- grid_regular(penalty(range = c(-5, 5)), levels = 10)
+penalty_grid
+
+tune_res <- tune_grid(
+  poke_workflow,
+  resamples = poke_fold, 
+  grid = penalty_grid
+  )
+
+tune_res
+```
+
 
