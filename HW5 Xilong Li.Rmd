@@ -5,6 +5,7 @@ date: '2022-05-15'
 output:
   html_document:
     df_print: paged
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -12,29 +13,24 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-library(tidyverse)
 library(tidymodels)
-library(discrim)
-library(poissonreg)
-library(corrr)
-library(klaR) # for naive bayes
-#install.packages("janitor")
-library(janitor)
-
-pokemon_original <- read.csv("Pokemon.csv")
-
+library(tidyverse)
+library(glmnet)
+library(janitor) 
 ```
 
 ## Question 1:
 
 ```{r}
-pokemon <- clean_names(pokemon_original)
+pokemon_original <- read.csv("Pokemon.csv")
+pokemon <- janitor:: clean_names(dat = pokemon_original)
 head(pokemon)
 ```
 By using the "clean_names" function, the resulting names are unique and consist only of the '_' character, numbers, and letters. Capitalization preferences can be specified using the case parameter. Accented characters are transliterated to ASCII. For example, an "o" with a German umlaut over it becomes "o", and the Spanish character "enye" becomes "n".(This explanation is cited from the website: https://rdrr.io/cran/janitor/man/clean_names.html)            
 ## Question 2:
 ```{r}
-ordered_data <- pokemon %>%
+copy_pokemon <- pokemon
+ordered_data <- copy_pokemon %>%
   group_by(type_1) %>%
   summarise(count = n()) %>%
   arrange(count)
@@ -44,69 +40,81 @@ ggplot(ordered_data, aes(x = count, y = reorder(type_1, -count))) + geom_bar(sta
 As it is shown above, there are 18 classes in total, and classes such as flying, fairy, and ice have fewer pokemons than others,
 
 ```{r}
-filtered_pokemon <- pokemon %>% filter(type_1 == c("Bug", "Fire", "Grass", "Normal", "Water", "Psychic"))
-filtered_pokemon$type_1 <- as.factor(filtered_pokemon$type_1)
-filtered_pokemon$legendary <- as.factor(filtered_pokemon$legendary)
+filtered_pokemon <- pokemon %>% 
+  filter(type_1 %in% c("Bug", "Fire", "Grass", "Normal", "Water", "Psychic"))
+final_pokemon <- filtered_pokemon %>% 
+  mutate(type_1 = factor(type_1),
+         legendary = factor(legendary))
+dim(final_pokemon)
+class(final_pokemon$type_1)
+class(final_pokemon$legendary)
 
 ```
 
 ## Question 3:
 ```{r}
-set.seed(2216)
+set.seed(2200)
 
-poke_split <- initial_split(filtered_pokemon, prop = 0.80,
-                            strata = "type_1")
+poke_split <- initial_split(final_pokemon, prop = 0.80,
+                            strata = type_1)
+
 poke_train <- training(poke_split)
 poke_test <- testing(poke_split)
 
-poke_fold <- vfold_cv(poke_train, v = 5)
-
-poke_fold
+poke_folds <- vfold_cv(poke_train, v = 5, strata = type_1)
+class(poke_folds)
 ```
+By stratifying the folds, we can make sure that the folds are representative of the data, since the splited data is also stratified on type_1. So that the distribution of types in each folds are approximately the same.
 
 ## Question 4:
 ```{r}
 poke_recipe <- recipe(type_1 ~ 
-                         legendary +
-                         generation + 
-                         sp_atk + 
-                         attack + 
-                         attack + 
-                         attack + 
-                         hp + 
-                         sp_def,
+                        legendary + 
+                        generation + 
+                        sp_atk + 
+                        attack + 
+                        speed + 
+                        defense + 
+                        hp + 
+                        sp_def,
                        data = poke_train) %>% 
-  step_dummy(legendary) %>% 
-  step_dummy(generation) %>% 
+  step_dummy(legendary,generation) %>% 
   step_center(all_predictors()) %>%
   step_scale(all_predictors())
+
+class(poke_train$generation)
 ```
 
 ## Question 5:
 
 ```{r}
-poke_spec <- multinom_reg (mixture = 0, penalty = 0) %>%
-  set_mode("classification") %>%
+poke_spec <- multinom_reg (penalty = tune(), mixture = tune()) %>%
   set_engine("glmnet")
 
 poke_workflow <- workflow() %>% 
   add_recipe(poke_recipe) %>% 
   add_model(poke_spec)
 
+poke_grid <- grid_regular(penalty(range = c(-5, 5)), 
+                             mixture(range = c(0,1)), 
+                             levels = c(10,10))
 ```
-
+Thus, there will be 500 models in total, since there are ten levels each for penalty and mixture and 5 folds in the data.
 ## Question 6:
 ```{r}
-penalty_grid <- grid_regular(penalty(range = c(-5, 5)), levels = 10)
-penalty_grid
+poke_workflow
+```
 
+
+```{r}
 tune_res <- tune_grid(
   poke_workflow,
-  resamples = poke_fold, 
-  grid = penalty_grid
-  )
-
-tune_res
+  resamples = poke_folds, 
+  grid = poke_grid
+)
+```
+```{r}
+autoplot(tune_res)
 ```
 
 
