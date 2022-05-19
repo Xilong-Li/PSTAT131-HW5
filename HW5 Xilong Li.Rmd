@@ -3,9 +3,9 @@ title: "HW5 Xilong Li"
 author: "Xilong Li (3467966)"
 date: '2022-05-15'
 output:
+  pdf_document: default
   html_document:
     df_print: paged
-  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -15,8 +15,14 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidymodels)
 library(tidyverse)
+library(MASS)
 library(glmnet)
 library(janitor) 
+library(discrim)
+library(poissonreg)
+library(corrr)
+library(klaR)
+
 ```
 
 ## Question 1:
@@ -26,8 +32,10 @@ pokemon_original <- read.csv("Pokemon.csv")
 pokemon <- janitor:: clean_names(dat = pokemon_original)
 head(pokemon)
 ```
-By using the "clean_names" function, the resulting names are unique and consist only of the '_' character, numbers, and letters. Capitalization preferences can be specified using the case parameter. Accented characters are transliterated to ASCII. For example, an "o" with a German umlaut over it becomes "o", and the Spanish character "enye" becomes "n".(This explanation is cited from the website: https://rdrr.io/cran/janitor/man/clean_names.html)            
-## Question 2:
+
+By using the "clean_names" function, the resulting names are unique and consist only of the '\_' character, numbers, and letters. Capitalization preferences can be specified using the case parameter. Accented characters are transliterated to ASCII. For example, an "o" with a German umlaut over it becomes "o", and the Spanish character "enye" becomes "n".(This explanation is cited from the website: <https://rdrr.io/cran/janitor/man/clean_names.html>)\
+\## Question 2:
+
 ```{r}
 copy_pokemon <- pokemon
 ordered_data <- copy_pokemon %>%
@@ -37,6 +45,7 @@ ordered_data <- copy_pokemon %>%
 
 ggplot(ordered_data, aes(x = count, y = reorder(type_1, -count))) + geom_bar(stat = "identity")
 ```
+
 As it is shown above, there are 18 classes in total, and classes such as flying, fairy, and ice have fewer pokemons than others,
 
 ```{r}
@@ -52,6 +61,7 @@ class(final_pokemon$legendary)
 ```
 
 ## Question 3:
+
 ```{r}
 set.seed(2200)
 
@@ -64,9 +74,11 @@ poke_test <- testing(poke_split)
 poke_folds <- vfold_cv(poke_train, v = 5, strata = type_1)
 class(poke_folds)
 ```
+
 By stratifying the folds, we can make sure that the folds are representative of the data, since the splited data is also stratified on type_1. So that the distribution of types in each folds are approximately the same.
 
 ## Question 4:
+
 ```{r}
 poke_recipe <- recipe(type_1 ~ 
                         legendary + 
@@ -99,12 +111,14 @@ poke_grid <- grid_regular(penalty(range = c(-5, 5)),
                              mixture(range = c(0,1)), 
                              levels = c(10,10))
 ```
+
 Thus, there will be 500 models in total, since there are ten levels each for penalty and mixture and 5 folds in the data.
+
 ## Question 6:
+
 ```{r}
 poke_workflow
 ```
-
 
 ```{r}
 tune_res <- tune_grid(
@@ -113,8 +127,69 @@ tune_res <- tune_grid(
   grid = poke_grid
 )
 ```
+
 ```{r}
 autoplot(tune_res)
 ```
 
+I noticed that when the mixture and penalty gets too large, the accuracy and ROC_AUC actually get smaller and smaller, and thus smaller mixture and penalty is better.
 
+## Question 7:
+
+```{r}
+penalty_chosen <- select_best(tune_res, metric = "roc_auc")
+penalty_chosen
+
+poke_final <- finalize_workflow(poke_workflow, penalty_chosen)
+poke_final_fit <- fit(poke_final, data = poke_train)
+
+augmented_result <- augment(poke_final_fit, new_data = poke_test)
+
+augment(poke_final_fit, new_data = poke_test) %>%
+  accuracy(truth = type_1, estimate = .pred_class)
+```
+
+## Question 8:
+
+```{r}
+
+
+predicted_result <- augmented_result[c('type_1',
+                                       '.pred_class', 
+                                       '.pred_Bug',
+                                       '.pred_Fire', 
+                                       '.pred_Grass', 
+                                       '.pred_Normal',
+                                       '.pred_Psychic',
+                                       '.pred_Water')]
+
+head(predicted_result)
+```
+
+Ploting the ROC_AUC curve:
+
+```{r}
+# ?roc_auc
+roc_auc(predicted_result, type_1, c(.pred_Bug, .pred_Fire, .pred_Grass, .pred_Normal, .pred_Psychic, .pred_Water))
+```
+
+```{r}
+# ?roc_curve
+roc_curve(predicted_result, type_1, c(.pred_Bug, .pred_Fire, .pred_Grass, .pred_Normal, .pred_Psychic,.pred_Water)) %>% autoplot()
+```
+
+```{r}
+predicted_result %>% 
+  conf_mat(type_1, .pred_class) %>% 
+  autoplot(type = "heatmap")
+
+```
+    
+As it is shown in the graph above, the number on the diagnal means the score that the model predict the type_1 correctly.       
+However, the class of Fire, water, and Grass are not predicted well by this model, and perhaps water performs the worst since the model mistakenly predicted the class for many times.
+While the class of Normal is best predicted, as most of its predictions are correct.
+It shows that this model is not performing well enough to predict pokemons' types, but it is understandable since there are too many types to be predicted in this model while there are limited data to train it.
+It is also interesting, perhaps irrelevant, to notice that Grass, Fire, and Water are three most basic types of Pokemons. So the reason why they are poorly predicted might be these three types share many basic and common features LOL.
+
+
+The model dose not have a great performance on Pokemon type prediction with 0.66 roc_auc. Also, the overall accuracy is 0.24468. The psychic is the model best at predicting. The water is the model worst at predicting on. The reason might be size of each type is vary, for example water has 112 observations and fire has 52 observations.
